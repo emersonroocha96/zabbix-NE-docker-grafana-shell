@@ -1,0 +1,132 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+VAGRANTFILE_API_VERSION = "2"
+
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+  
+  $host_bridge_ip = "10.0.0.111"
+  $host_bridge_interface = "Intel(R) Dual Band Wireless-AC 7265"
+  config.vm.boot_timeout = 600
+
+  # --- Configuração do Host 1: ZBX-SERVER-SBRF (O Servidor) ---
+  config.vm.define "ZBX-SERVER-SBRF" do |zbx_server|
+    zbx_server.vm.box = "ubuntu/jammy64"
+    zbx_server.vm.provider "virtualbox" do |v|
+      v.name = "host-zbx-server-sbrf"
+      v.memory = 2048
+      v.cpus = 2
+    end
+    
+    zbx_server.vm.network "public_network", 
+      bridge: $host_bridge_interface, 
+      ip: $host_bridge_ip,
+      netmask: "255.255.255.0"
+
+    zbx_server.vm.network "private_network", ip: "192.168.50.10"
+    zbx_server.vm.hostname = "zbx-server-sbrf"
+    zbx_server.vm.provision "shell", inline: "sudo apt-get update", run: "once"
+    
+    # Mapeia novas pastas
+    zbx_server.vm.synced_folder "scripts_on_zbx_server/", "/home/vagrant/scripts_on_zbx_server"
+    zbx_server.vm.synced_folder "zbx-server-sbrf-stack-docker/", "/home/vagrant/zbx-server-sbrf-stack"
+    
+    # Aponta para novo script
+    zbx_server.vm.provision "shell", path: "scripts_on_zbx_server/setup_zbx_server.sh"
+    
+    # Provisionador do Agente (Lógica de descoberta de rede Docker)
+    zbx_server.vm.provision "shell", inline: <<-SHELL
+      echo "--- [ZBX-SERVER-SBRF] Instalando o Zabbix Agent na VM ---"
+      sudo apt-get install -y zabbix-agent
+      DOCKER_NET_RANGE=$(sudo docker network inspect monitoring-net | grep Subnet | awk '{print $2}' | tr -d '",')
+      echo "--- [ZBX-SERVER-SBRF] Autorizando a rede Docker $DOCKER_NET_RANGE ---"
+      sudo sed -i "s/Server=127.0.0.1/Server=127.0.0.1,$DOCKER_NET_RANGE/g" /etc/zabbix/zabbix_agentd.conf
+      sudo sed -i "s/Hostname=Zabbix server/Hostname=zbx-server-sbrf/g" /etc/zabbix/zabbix_agentd.conf
+      sudo systemctl restart zabbix-agent
+      sudo systemctl enable zabbix-agent
+    SHELL
+  end
+
+  # --- Configuração do Host 2: ZBX-PROXY-SBSV (Proxy 1) ---
+  config.vm.define "ZBX-PROXY-SBSV" do |zbx_proxy_sbsv|
+    zbx_proxy_sbsv.vm.box = "ubuntu/jammy64"
+    zbx_proxy_sbsv.vm.provider "virtualbox" do |v|
+      v.name = "host-zbx-proxy-sbsv"
+      v.memory = 1024
+      v.cpus = 1
+    end
+    
+    zbx_proxy_sbsv.vm.network "public_network", bridge: $host_bridge_interface, type: "dhcp"
+    zbx_proxy_sbsv.vm.network "private_network", ip: "192.168.50.20"
+    zbx_proxy_sbsv.vm.network "private_network", ip: "10.10.20.10"
+    zbx_proxy_sbsv.vm.hostname = "zbx-proxy-sbsv"
+    zbx_proxy_sbsv.vm.provision "shell", inline: "sudo apt-get update", run: "once"
+    
+    # Mapeia novas pastas
+    zbx_proxy_sbsv.vm.synced_folder "scripts_on_zbx-proxy-sbsv-stack/", "/home/vagrant/scripts_on_zbx-proxy-sbsv-stack"
+    zbx_proxy_sbsv.vm.synced_folder "zbx-proxy-sbsv-stack-docker/", "/home/vagrant/zbx-proxy-sbsv-stack"
+
+    # Aponta para novos scripts
+    zbx_proxy_sbsv.vm.provision "shell", path: "scripts_on_zbx-proxy-sbsv-stack/setup_zbx_proxy_SBSV.sh"
+    zbx_proxy_sbsv.vm.provision "shell", path: "scripts_on_zbx-proxy-sbsv-stack/setup_agent_zbx_on_proxy_SBSV.sh"
+  end
+
+  # --- Configuração do Host 3: ZBX-PROXY-SBNT (Proxy 2) ---
+  config.vm.define "ZBX-PROXY-SBNT" do |zbx_proxy_sbnt|
+    zbx_proxy_sbnt.vm.box = "ubuntu/jammy64"
+    zbx_proxy_sbnt.vm.provider "virtualbox" do |v|
+      v.name = "host-zbx-proxy-sbnt"
+      v.memory = 1024
+      v.cpus = 1
+    end
+    
+    zbx_proxy_sbnt.vm.network "public_network", bridge: $host_bridge_interface, type: "dhcp"
+    zbx_proxy_sbnt.vm.network "private_network", ip: "192.168.50.30"
+    zbx_proxy_sbnt.vm.network "private_network", ip: "10.10.30.10"
+    zbx_proxy_sbnt.vm.hostname = "zbx-proxy-sbnt"
+    zbx_proxy_sbnt.vm.provision "shell", inline: "sudo apt-get update", run: "once"
+
+    # Mapeia novas pastas
+    zbx_proxy_sbnt.vm.synced_folder "scripts_on_zbx-proxy-sbnt-stack/", "/home/vagrant/scripts_on_zbx-proxy-sbnt-stack"
+    zbx_proxy_sbnt.vm.synced_folder "zbx-proxy-sbnt-stack-docker/", "/home/vagrant/zbx-proxy-sbnt-stack"
+    
+    # Aponta para novos scripts
+    zbx_proxy_sbnt.vm.provision "shell", path: "scripts_on_zbx-proxy-sbnt-stack/setup_zbx_proxy_SBNT.sh"
+    zbx_proxy_sbnt.vm.provision "shell", path: "scripts_on_zbx-proxy-sbnt-stack/setup_agent_zbx_on_proxy_SBNT.sh"
+  end
+  
+  # --- Configuração do Host 4: ZBX-CLIENT-SBSV (Cliente 1) ---
+  config.vm.define "ZBX-CLIENT-SBSV" do |zbx_client_sv|
+    zbx_client_sv.vm.box = "ubuntu/jammy64"
+    zbx_client_sv.vm.provider "virtualbox" do |v|
+      v.name = "host-zbx-client-sbsv"
+      v.memory = 768
+      v.cpus = 1
+    end
+    
+    zbx_client_sv.vm.network "public_network", bridge: $host_bridge_interface, type: "dhcp"
+    zbx_client_sv.vm.network "private_network", ip: "10.10.20.20"
+    zbx_client_sv.vm.hostname = "zbx-client-sbsv"
+    zbx_client_sv.vm.provision "shell", inline: "sudo apt-get update", run: "once"
+    zbx_client_sv.vm.synced_folder "zbx-client-sbsv-stack/", "/vagrant/zbx-client-sbsv-stack"
+    zbx_client_sv.vm.provision "shell", path: "zbx-client-sbsv-stack/setup_agent_SBSV.sh"
+  end
+
+  # --- Configuração do Host 5: ZBX-CLIENT-SBNT (Cliente 2) ---
+  config.vm.define "ZBX-CLIENT-SBNT" do |zbx_client_nt|
+    zbx_client_nt.vm.box = "ubuntu/jammy64"
+    zbx_client_nt.vm.provider "virtualbox" do |v|
+      v.name = "host-zbx-client-sbnt"
+      v.memory = 768
+      v.cpus = 1
+    end
+    
+    zbx_client_nt.vm.network "public_network", bridge: $host_bridge_interface, type: "dhcp"
+    zbx_client_nt.vm.network "private_network", ip: "10.10.30.20"
+    zbx_client_nt.vm.hostname = "zbx-client-sbnt"
+    zbx_client_nt.vm.provision "shell", inline: "sudo apt-get update", run: "once"
+    zbx_client_nt.vm.synced_folder "zbx-client-sbnt-stack/", "/vagrant/zbx-client-sbnt-stack"
+    zbx_client_nt.vm.provision "shell", path: "zbx-client-sbnt-stack/setup_agent_SBNT.sh"
+  end
+
+end

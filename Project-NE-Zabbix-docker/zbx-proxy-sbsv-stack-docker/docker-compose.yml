@@ -1,0 +1,19 @@
+version: '3.8'
+services:
+  zabbix-proxy:
+    image: zabbix/zabbix-proxy-sqlite3:latest 
+    container_name: zabbix-proxy-sbsv
+    ports:
+      - "10051:10051" 
+    volumes:
+      - zabbix_proxy_data_sbsv:/var/lib/zabbix
+    environment:
+      - ZBX_SERVER_HOST=192.168.50.10 
+      - ZBX_HOSTNAME=ZBX-PROXY-SBSV
+    networks:
+      - proxy-net-sbsv
+volumes:
+  zabbix_proxy_data_sbsv:
+networks:
+  proxy-net-sbsv:
+    driver: bridge

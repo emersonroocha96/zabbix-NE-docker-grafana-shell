@@ -1,0 +1,1 @@
+{"virtualbox":{"/vagrant/zbx-client-sbnt-stack":{"guestpath":"/vagrant/zbx-client-sbnt-stack","hostpath":"C:/vms_vagrant/MonitoramentoV4/Projeto-Ne-Zabbix/zbx-client-sbnt-stack","disabled":false,"__vagrantfile":true},"/vagrant":{"guestpath":"/vagrant","hostpath":"C:/vms_vagrant/MonitoramentoV4/Projeto-Ne-Zabbix","disabled":false,"__vagrantfile":true}}}

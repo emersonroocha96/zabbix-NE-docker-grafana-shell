@@ -1,0 +1,85 @@
+version: '3.8'
+services:
+  mysql-server:
+    image: mysql:8.0
+    container_name: mysql-server-zabbix
+    command:
+      - --character-set-server=utf8
+      - --collation-server=utf8_bin
+    volumes:
+      - mysql_data:/var/lib/mysql 
+    environment:
+      - MYSQL_ROOT_PASSWORD=zabbix_root_pass
+      - MYSQL_DATABASE=zabbix
+      - MYSQL_USER=zabbix_user
+      - MYSQL_PASSWORD=zabbix_pass
+    networks:
+      - monitoring-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "zabbix_user", "-p${MYSQL_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  zabbix-server:
+    image: zabbix/zabbix-server-mysql:latest
+    container_name: zabbix-server
+    depends_on:
+      mysql-server: 
+        condition: service_healthy
+    ports:
+      - "10051:10051" 
+    volumes:
+      - zabbix_server_data:/var/lib/zabbix
+    environment:
+      - DB_SERVER_HOST=mysql-server 
+      - MYSQL_DATABASE=zabbix
+      - MYSQL_USER=zabbix_user
+      - MYSQL_PASSWORD=zabbix_pass
+      - MYSQL_ROOT_PASSWORD=zabbix_root_pass
+    networks:
+      - monitoring-net
+    # [CORREÇÃO 1] Healthcheck funcional para Alpine (verifica se o processo está rodando)
+    healthcheck:
+      test: ["CMD", "pidof", "zabbix_server"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s # Espera 30s antes de começar a testar
+
+  zabbix-web:
+    image: zabbix/zabbix-web-nginx-mysql:latest
+    container_name: zabbix-web
+    # [CORREÇÃO 2] Faz o 'zabbix-web' esperar pelo 'mysql-server' E pelo 'zabbix-server'
+    depends_on:
+      mysql-server:
+        condition: service_healthy
+      zabbix-server:
+        condition: service_healthy
+    ports:
+      - "8080:8080" 
+    environment:
+      - ZBX_SERVER_HOST=zabbix-server
+      - DB_SERVER_HOST=mysql-server
+      - MYSQL_DATABASE=zabbix
+      - MYSQL_USER=zabbix_user
+      - MYSQL_PASSWORD=zabbix_pass
+    networks:
+      - monitoring-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000" 
+    volumes:
+      - grafana_data:/var/lib/grafana 
+    networks:
+      - monitoring-net
+volumes:
+  mysql_data:
+  zabbix_server_data:
+  grafana_data:
+networks:
+  monitoring-net:
+    driver: bridge
